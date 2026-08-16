@@ -40,92 +40,92 @@ MAX_WORKERS = 14
 
 DEFAULT_AGENCIES = [
     {
-        "name": "Agencia 1",
+        "name": "Agencia Central",
         "links": [
             {
-                "name": "Enlace 1",
+                "name": "Enlace Tigo",
                 "ip": "192.0.2.11"
             },
             {
-                "name": "Enlace 2",
+                "name": "Enlace Claro",
                 "ip": "198.51.100.11"
             }
         ]
     },
     {
-        "name": "Agencia 2",
+        "name": "Agencia Mercados",
         "links": [
             {
-                "name": "Enlace 1",
+                "name": "Enlace Tigo",
                 "ip": "192.0.2.12"
             },
             {
-                "name": "Enlace 2",
+                "name": "Enlace Claro",
                 "ip": "198.51.100.12"
             }
         ]
     },
     {
-        "name": "Agencia 3",
+        "name": "Agencia Gotera",
         "links": [
             {
-                "name": "Enlace 1",
+                "name": "Enlace Tigo",
                 "ip": "192.0.2.13"
             },
             {
-                "name": "Enlace 2",
+                "name": "Enlace Claro",
                 "ip": "198.51.100.13"
             }
         ]
     },
     {
-        "name": "Agencia 4",
+        "name": "Agencia Usulutan",
         "links": [
             {
-                "name": "Enlace 1",
+                "name": "Enlace Tigo",
                 "ip": "192.0.2.14"
             },
             {
-                "name": "Enlace 2",
+                "name": "Enlace Claro",
                 "ip": "198.51.100.14"
             }
         ]
     },
     {
-        "name": "Agencia 5",
+        "name": "Agencia La Union",
         "links": [
             {
-                "name": "Enlace 1",
+                "name": "Enlace Tigo",
                 "ip": "192.0.2.15"
             },
             {
-                "name": "Enlace 2",
+                "name": "Enlace Claro",
                 "ip": "198.51.100.15"
             }
         ]
     },
     {
-        "name": "Agencia 6",
+        "name": "Agencia San Vicente",
         "links": [
             {
-                "name": "Enlace 1",
+                "name": "Enlace Tigo",
                 "ip": "192.0.2.16"
             },
             {
-                "name": "Enlace 2",
+                "name": "Enlace Claro",
                 "ip": "198.51.100.16"
             }
         ]
     },
     {
-        "name": "Agencia 7",
+        "name": "Agencia San Salvador",
         "links": [
             {
-                "name": "Enlace 1",
+                "name": "Enlace Tigo",
                 "ip": "192.0.2.17"
             },
             {
-                "name": "Enlace 2",
+                "name": "Enlace Claro",
                 "ip": "198.51.100.17"
             }
         ]
