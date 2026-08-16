@@ -1,6 +1,5 @@
-
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import threading
 import subprocess
 import platform
@@ -8,17 +7,37 @@ import json
 import os
 import time
 import smtplib
+import shutil
 
 from datetime import datetime
 from email.message import EmailMessage
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from PIL import Image, ImageTk
 
 
 # ============================================================
 # CONFIGURACIÓN GENERAL
 # ============================================================
 
-CONFIG_FILE = "config.json"
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
+CONFIG_FILE = os.path.join(
+    BASE_DIR,
+    "config.json"
+)
+
+ASSETS_DIR = os.path.join(
+    BASE_DIR,
+    "assets"
+)
+
+os.makedirs(
+    ASSETS_DIR,
+    exist_ok=True
+)
 
 # Intervalo entre ciclos completos de monitoreo
 PING_INTERVAL = 4
@@ -147,6 +166,13 @@ email_account = ""
 email_password = ""
 alert_recipient = ""
 
+# Apariencia
+logo_path = ""
+icon_path = ""
+
+logo_image = None
+application_icon_image = None
+
 # Estados
 link_states = {}
 failure_counts = {}
@@ -166,6 +192,10 @@ monitor_label = None
 simulation_button = None
 simulation_info = None
 
+# Encabezado
+header_logo_label = None
+header_title_label = None
+
 # Identificador de cada fila
 row_items = {}
 
@@ -178,7 +208,96 @@ state_lock = threading.Lock()
 # ============================================================
 
 def current_time():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    return datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
+# ============================================================
+# ARCHIVOS DE APARIENCIA
+# ============================================================
+
+def copy_asset(
+    source_path,
+    asset_name
+):
+    """
+    Copia un archivo seleccionado por el usuario
+    a la carpeta assets.
+    """
+
+    try:
+
+        if not source_path:
+            return ""
+
+        extension = os.path.splitext(
+            source_path
+        )[1].lower()
+
+        destination = os.path.join(
+            ASSETS_DIR,
+            asset_name + extension
+        )
+
+        # Eliminar versiones anteriores
+        for filename in os.listdir(ASSETS_DIR):
+
+            if filename.startswith(
+                asset_name + "."
+            ):
+
+                old_file = os.path.join(
+                    ASSETS_DIR,
+                    filename
+                )
+
+                try:
+
+                    if os.path.abspath(
+                        old_file
+                    ) != os.path.abspath(
+                        destination
+                    ):
+
+                        os.remove(
+                            old_file
+                        )
+
+                except Exception:
+                    pass
+
+        shutil.copy2(
+            source_path,
+            destination
+        )
+
+        return destination
+
+    except Exception as e:
+
+        messagebox.showerror(
+            "Error",
+            "No fue posible copiar el archivo:\n\n"
+            f"{e}"
+        )
+
+        return ""
+
+
+def remove_asset_file(
+    path
+):
+
+    try:
+
+        if path and os.path.exists(path):
+
+            os.remove(path)
+
+    except Exception:
+        pass
 
 
 # ============================================================
@@ -190,8 +309,13 @@ def load_config():
     global email_account
     global alert_recipient
     global DEFAULT_AGENCIES
+    global logo_path
+    global icon_path
 
-    if not os.path.exists(CONFIG_FILE):
+    if not os.path.exists(
+        CONFIG_FILE
+    ):
+
         return
 
     try:
@@ -202,7 +326,9 @@ def load_config():
             encoding="utf-8"
         ) as file:
 
-            data = json.load(file)
+            data = json.load(
+                file
+            )
 
         email_account = data.get(
             "email_account",
@@ -214,6 +340,58 @@ def load_config():
             ""
         )
 
+        logo_path = data.get(
+            "logo_path",
+            ""
+        )
+
+        icon_path = data.get(
+            "icon_path",
+            ""
+        )
+
+        # ----------------------------------------------------
+        # CONVERTIR RUTAS RELATIVAS
+        # ----------------------------------------------------
+
+        if logo_path:
+
+            if not os.path.isabs(
+                logo_path
+            ):
+
+                logo_path = os.path.join(
+                    BASE_DIR,
+                    logo_path
+                )
+
+            if not os.path.exists(
+                logo_path
+            ):
+
+                logo_path = ""
+
+        if icon_path:
+
+            if not os.path.isabs(
+                icon_path
+            ):
+
+                icon_path = os.path.join(
+                    BASE_DIR,
+                    icon_path
+                )
+
+            if not os.path.exists(
+                icon_path
+            ):
+
+                icon_path = ""
+
+        # ----------------------------------------------------
+        # AGENCIAS
+        # ----------------------------------------------------
+
         saved_agencies = data.get(
             "agencies"
         )
@@ -224,7 +402,10 @@ def load_config():
                 saved_agencies
             ):
 
-                if i >= len(DEFAULT_AGENCIES):
+                if i >= len(
+                    DEFAULT_AGENCIES
+                ):
+
                     break
 
                 DEFAULT_AGENCIES[i]["name"] = (
@@ -272,6 +453,25 @@ def save_config():
     data = {
         "email_account": email_account,
         "alert_recipient": alert_recipient,
+
+        "logo_path": (
+            os.path.relpath(
+                logo_path,
+                BASE_DIR
+            )
+            if logo_path
+            else ""
+        ),
+
+        "icon_path": (
+            os.path.relpath(
+                icon_path,
+                BASE_DIR
+            )
+            if icon_path
+            else ""
+        ),
+
         "agencies": DEFAULT_AGENCIES
     }
 
@@ -296,10 +496,129 @@ def save_config():
 
         messagebox.showerror(
             "Error",
-            f"No fue posible guardar la configuración:\n\n{e}"
+            "No fue posible guardar la configuración:\n\n"
+            f"{e}"
         )
 
         return False
+
+
+# ============================================================
+# APLICAR ICONO
+# ============================================================
+
+def apply_application_icon():
+
+    global application_icon_image
+
+    if not icon_path:
+        return
+
+    if not os.path.exists(
+        icon_path
+    ):
+
+        return
+
+    try:
+
+        extension = os.path.splitext(
+            icon_path
+        )[1].lower()
+
+        # ----------------------------------------------------
+        # ICO
+        # ----------------------------------------------------
+
+        if extension == ".ico":
+
+            root.iconbitmap(
+                icon_path
+            )
+
+        # ----------------------------------------------------
+        # PNG / JPG / JPEG
+        # ----------------------------------------------------
+
+        else:
+
+            image = Image.open(
+                icon_path
+            )
+
+            image.thumbnail(
+                (64, 64)
+            )
+
+            application_icon_image = ImageTk.PhotoImage(
+                image
+            )
+
+            root.iconphoto(
+                True,
+                application_icon_image
+            )
+
+    except Exception as e:
+
+        print(
+            f"No fue posible aplicar el icono: {e}"
+        )
+
+
+# ============================================================
+# MOSTRAR LOGO EN ENCABEZADO
+# ============================================================
+
+def rebuild_header_logo():
+
+    global logo_image
+
+    if header_logo_label is None:
+        return
+
+    try:
+
+        if logo_path and os.path.exists(
+            logo_path
+        ):
+
+            image = Image.open(
+                logo_path
+            )
+
+            image.thumbnail(
+                (280, 100)
+            )
+
+            logo_image = ImageTk.PhotoImage(
+                image
+            )
+
+            header_logo_label.configure(
+                image=logo_image,
+                text=""
+            )
+
+        else:
+
+            logo_image = None
+
+            header_logo_label.configure(
+                image="",
+                text=""
+            )
+
+    except Exception as e:
+
+        print(
+            f"Error mostrando logo: {e}"
+        )
+
+        header_logo_label.configure(
+            image="",
+            text=""
+        )
 
 
 # ============================================================
@@ -307,6 +626,7 @@ def save_config():
 # ============================================================
 
 def ping_ip(ip):
+
     """
     Hace un ping a una IP.
 
@@ -372,16 +692,25 @@ def ping_ip(ip):
 
         if result.returncode == 0:
 
-            return True, round(
-                elapsed,
-                1
+            return (
+                True,
+                round(
+                    elapsed,
+                    1
+                )
             )
 
-        return False, None
+        return (
+            False,
+            None
+        )
 
     except Exception:
 
-        return False, None
+        return (
+            False,
+            None
+        )
 
 
 # ============================================================
@@ -487,7 +816,8 @@ def send_email(
         )
 
         log_event(
-            f"Conectando a {SMTP_SERVER}:{SMTP_PORT}..."
+            f"Conectando a "
+            f"{SMTP_SERVER}:{SMTP_PORT}..."
         )
 
         with smtplib.SMTP(
@@ -512,7 +842,8 @@ def send_email(
             )
 
         log_event(
-            f"Correo enviado correctamente: {subject}"
+            f"Correo enviado correctamente: "
+            f"{subject}"
         )
 
         return True
@@ -662,13 +993,16 @@ por el Monitor de Enlaces de Red.
 # DURACIÓN DE UNA CAÍDA
 # ============================================================
 
-def calculate_duration(start_timestamp):
+def calculate_duration(
+    start_timestamp
+):
 
     if not start_timestamp:
         return "Desconocido"
 
     seconds = int(
-        time.time() - start_timestamp
+        time.time() -
+        start_timestamp
     )
 
     hours, remainder = divmod(
@@ -689,7 +1023,7 @@ def calculate_duration(start_timestamp):
 
 
 # ============================================================
-# ACTUALIZAR FILA
+# ACTUALIZAR TABLA
 # ============================================================
 
 def refresh_tree():
@@ -783,10 +1117,12 @@ def refresh_tree():
                     tags=(tag,)
                 )
 
-        root.after(
-            500,
-            refresh_tree
-        )
+        if root is not None:
+
+            root.after(
+                500,
+                refresh_tree
+            )
 
     except Exception:
         pass
@@ -928,7 +1264,8 @@ def monitor_loop():
     )
 
     log_event(
-        f"Intervalo: {PING_INTERVAL} segundos."
+        f"Intervalo: "
+        f"{PING_INTERVAL} segundos."
     )
 
     log_event(
@@ -949,7 +1286,7 @@ def monitor_loop():
             tasks = {}
 
             # --------------------------------------------
-            # PREPARAR LOS 14 ENLACES
+            # PREPARAR ENLACES
             # --------------------------------------------
 
             for agency in DEFAULT_AGENCIES:
@@ -1006,16 +1343,22 @@ def monitor_loop():
             # RECIBIR RESULTADOS
             # --------------------------------------------
 
-            for future in as_completed(tasks):
+            for future in as_completed(
+                tasks
+            ):
 
                 if not running:
                     break
 
-                agency, link = tasks[future]
+                agency, link = tasks[
+                    future
+                ]
 
                 try:
 
-                    result, latency = future.result()
+                    result, latency = (
+                        future.result()
+                    )
 
                 except Exception:
 
@@ -1030,7 +1373,7 @@ def monitor_loop():
                 )
 
             # --------------------------------------------
-            # ESPERAR HASTA EL SIGUIENTE CICLO
+            # ESPERAR SIGUIENTE CICLO
             # --------------------------------------------
 
             elapsed = (
@@ -1040,7 +1383,8 @@ def monitor_loop():
 
             remaining = max(
                 0,
-                PING_INTERVAL - elapsed
+                PING_INTERVAL -
+                elapsed
             )
 
             end_time = (
@@ -1050,7 +1394,8 @@ def monitor_loop():
 
             while (
                 running
-                and time.time() < end_time
+                and
+                time.time() < end_time
             ):
 
                 time.sleep(
@@ -1184,7 +1529,9 @@ def toggle_simulation():
         )
 
 
-def simulate_link_down(key):
+def simulate_link_down(
+    key
+):
 
     if not simulation_mode:
 
@@ -1246,7 +1593,11 @@ def open_email_config():
     ttk.Label(
         window,
         text="Correo remitente Microsoft 365:",
-        font=("Arial", 10, "bold")
+        font=(
+            "Arial",
+            10,
+            "bold"
+        )
     ).pack(
         padx=20,
         pady=(20, 5),
@@ -1274,7 +1625,11 @@ def open_email_config():
     ttk.Label(
         window,
         text="Contraseña:",
-        font=("Arial", 10, "bold")
+        font=(
+            "Arial",
+            10,
+            "bold"
+        )
     ).pack(
         padx=20,
         pady=(20, 5),
@@ -1331,7 +1686,11 @@ def open_email_config():
     ttk.Label(
         window,
         text="Correo destinatario de alertas:",
-        font=("Arial", 10, "bold")
+        font=(
+            "Arial",
+            10,
+            "bold"
+        )
     ).pack(
         padx=20,
         pady=(15, 5),
@@ -1628,7 +1987,11 @@ def open_agency_config():
     ttk.Label(
         main_frame,
         text="Agencia",
-        font=("Arial", 10, "bold")
+        font=(
+            "Arial",
+            10,
+            "bold"
+        )
     ).grid(
         row=0,
         column=0,
@@ -1639,7 +2002,11 @@ def open_agency_config():
     ttk.Label(
         main_frame,
         text="Enlace",
-        font=("Arial", 10, "bold")
+        font=(
+            "Arial",
+            10,
+            "bold"
+        )
     ).grid(
         row=0,
         column=1,
@@ -1650,7 +2017,11 @@ def open_agency_config():
     ttk.Label(
         main_frame,
         text="IP pública",
-        font=("Arial", 10, "bold")
+        font=(
+            "Arial",
+            10,
+            "bold"
+        )
     ).grid(
         row=0,
         column=2,
@@ -1759,6 +2130,442 @@ def open_agency_config():
 
 
 # ============================================================
+# CONFIGURACIÓN DE APARIENCIA
+# ============================================================
+
+def open_appearance_config():
+
+    global logo_path
+    global icon_path
+    global logo_image
+
+    window = tk.Toplevel(
+        root
+    )
+
+    window.title(
+        "Configuración de apariencia"
+    )
+
+    window.geometry(
+        "650x650"
+    )
+
+    window.resizable(
+        False,
+        False
+    )
+
+    # ========================================================
+    # TÍTULO
+    # ========================================================
+
+    ttk.Label(
+        window,
+        text="PERSONALIZACIÓN DE LA APLICACIÓN",
+        font=(
+            "Arial",
+            16,
+            "bold"
+        )
+    ).pack(
+        pady=(20, 10)
+    )
+
+    # ========================================================
+    # LOGO
+    # ========================================================
+
+    logo_frame = ttk.LabelFrame(
+        window,
+        text="Logo del formulario"
+    )
+
+    logo_frame.pack(
+        fill="x",
+        padx=25,
+        pady=10
+    )
+
+    ttk.Label(
+        logo_frame,
+        text=(
+            "Seleccione una imagen para mostrar "
+            "en el encabezado de la aplicación."
+        )
+    ).pack(
+        pady=10
+    )
+
+    preview_label = ttk.Label(
+        logo_frame
+    )
+
+    preview_label.pack(
+        pady=10
+    )
+
+    def show_preview():
+
+        global logo_image
+
+        if not logo_path:
+
+            preview_label.configure(
+                image="",
+                text="Sin logo"
+            )
+
+            return
+
+        if not os.path.exists(
+            logo_path
+        ):
+
+            preview_label.configure(
+                image="",
+                text="Sin logo"
+            )
+
+            return
+
+        try:
+
+            image = Image.open(
+                logo_path
+            )
+
+            image.thumbnail(
+                (400, 120)
+            )
+
+            logo_image = ImageTk.PhotoImage(
+                image
+            )
+
+            preview_label.configure(
+                image=logo_image,
+                text=""
+            )
+
+        except Exception as e:
+
+            preview_label.configure(
+                image="",
+                text="No fue posible cargar el logo"
+            )
+
+            print(
+                f"Error cargando logo: {e}"
+            )
+
+    def upload_logo():
+
+        global logo_path
+
+        filename = filedialog.askopenfilename(
+            title="Seleccionar logo",
+            filetypes=[
+                (
+                    "Imágenes",
+                    "*.png *.jpg *.jpeg *.gif *.bmp"
+                ),
+                (
+                    "PNG",
+                    "*.png"
+                ),
+                (
+                    "JPG",
+                    "*.jpg *.jpeg"
+                ),
+                (
+                    "GIF",
+                    "*.gif"
+                ),
+                (
+                    "Todos los archivos",
+                    "*.*"
+                )
+            ]
+        )
+
+        if not filename:
+            return
+
+        copied = copy_asset(
+            filename,
+            "application_logo"
+        )
+
+        if copied:
+
+            logo_path = copied
+
+            save_config()
+
+            show_preview()
+
+            rebuild_header_logo()
+
+            messagebox.showinfo(
+                "Logo",
+                "Logo actualizado correctamente."
+            )
+
+    def remove_logo():
+
+        global logo_path
+        global logo_image
+
+        remove_asset_file(
+            logo_path
+        )
+
+        logo_path = ""
+
+        logo_image = None
+
+        save_config()
+
+        preview_label.configure(
+            image="",
+            text="Sin logo"
+        )
+
+        rebuild_header_logo()
+
+        messagebox.showinfo(
+            "Logo",
+            "Logo eliminado correctamente."
+        )
+
+    logo_buttons = ttk.Frame(
+        logo_frame
+    )
+
+    logo_buttons.pack(
+        pady=10
+    )
+
+    ttk.Button(
+        logo_buttons,
+        text="SUBIR LOGO",
+        command=upload_logo
+    ).pack(
+        side="left",
+        padx=5
+    )
+
+    ttk.Button(
+        logo_buttons,
+        text="QUITAR LOGO",
+        command=remove_logo
+    ).pack(
+        side="left",
+        padx=5
+    )
+
+    show_preview()
+
+    # ========================================================
+    # ICONO
+    # ========================================================
+
+    icon_frame = ttk.LabelFrame(
+        window,
+        text="Icono de la aplicación"
+    )
+
+    icon_frame.pack(
+        fill="x",
+        padx=25,
+        pady=15
+    )
+
+    ttk.Label(
+        icon_frame,
+        text=(
+            "Seleccione el icono que utilizará "
+            "la ventana de la aplicación."
+        )
+    ).pack(
+        pady=10
+    )
+
+    icon_status = ttk.Label(
+        icon_frame,
+        text=""
+    )
+
+    icon_status.pack(
+        pady=5
+    )
+
+    def update_icon_status():
+
+        if icon_path:
+
+            icon_status.configure(
+                text=(
+                    "Icono actual:\n"
+                    f"{os.path.basename(icon_path)}"
+                ),
+                foreground="#008000"
+            )
+
+        else:
+
+            icon_status.configure(
+                text="No hay icono personalizado.",
+                foreground="#777777"
+            )
+
+    def upload_icon():
+
+        global icon_path
+
+        filename = filedialog.askopenfilename(
+            title="Seleccionar icono",
+            filetypes=[
+                (
+                    "Iconos",
+                    "*.ico"
+                ),
+                (
+                    "Imágenes",
+                    "*.png *.jpg *.jpeg"
+                ),
+                (
+                    "Todos los archivos",
+                    "*.*"
+                )
+            ]
+        )
+
+        if not filename:
+            return
+
+        extension = os.path.splitext(
+            filename
+        )[1].lower()
+
+        if extension not in (
+            ".ico",
+            ".png",
+            ".jpg",
+            ".jpeg"
+        ):
+
+            messagebox.showwarning(
+                "Icono",
+                "Seleccione un archivo ICO, PNG o JPG."
+            )
+
+            return
+
+        copied = copy_asset(
+            filename,
+            "application_icon"
+        )
+
+        if copied:
+
+            icon_path = copied
+
+            save_config()
+
+            apply_application_icon()
+
+            update_icon_status()
+
+            messagebox.showinfo(
+                "Icono",
+                (
+                    "Icono actualizado correctamente.\n\n"
+                    "Para obtener el mejor resultado en Windows, "
+                    "se recomienda utilizar un archivo .ICO."
+                )
+            )
+
+    def remove_icon():
+
+        global icon_path
+
+        remove_asset_file(
+            icon_path
+        )
+
+        icon_path = ""
+
+        save_config()
+
+        update_icon_status()
+
+        messagebox.showinfo(
+            "Icono",
+            "Icono personalizado eliminado."
+        )
+
+    icon_buttons = ttk.Frame(
+        icon_frame
+    )
+
+    icon_buttons.pack(
+        pady=10
+    )
+
+    ttk.Button(
+        icon_buttons,
+        text="SUBIR ICONO",
+        command=upload_icon
+    ).pack(
+        side="left",
+        padx=5
+    )
+
+    ttk.Button(
+        icon_buttons,
+        text="QUITAR ICONO",
+        command=remove_icon
+    ).pack(
+        side="left",
+        padx=5
+    )
+
+    update_icon_status()
+
+    # ========================================================
+    # INFORMACIÓN
+    # ========================================================
+
+    info = ttk.LabelFrame(
+        window,
+        text="Información"
+    )
+
+    info.pack(
+        fill="x",
+        padx=25,
+        pady=10
+    )
+
+    ttk.Label(
+        info,
+        text=(
+            "Los archivos seleccionados se copian "
+            "automáticamente a la carpeta 'assets'.\n\n"
+            "Logo recomendado: PNG con fondo transparente.\n"
+            "Icono recomendado para Windows: ICO de 256x256."
+        ),
+        justify="left"
+    ).pack(
+        padx=15,
+        pady=15,
+        anchor="w"
+    )
+
+
+# ============================================================
 # RECONSTRUIR TABLA
 # ============================================================
 
@@ -1767,6 +2574,9 @@ def rebuild_table():
     global row_items
 
     row_items.clear()
+
+    if tree is None:
+        return
 
     for item in tree.get_children():
 
@@ -1777,8 +2587,11 @@ def rebuild_table():
     with state_lock:
 
         link_states.clear()
+
         failure_counts.clear()
+
         down_since.clear()
+
         last_latency.clear()
 
     for agency in DEFAULT_AGENCIES:
@@ -1820,7 +2633,9 @@ def rebuild_table():
 # DOBLE CLICK EN TABLA
 # ============================================================
 
-def on_tree_double_click(event):
+def on_tree_double_click(
+    event
+):
 
     item_id = tree.identify_row(
         event.y
@@ -1864,8 +2679,13 @@ def build_main_interface():
     global monitor_label
     global simulation_button
     global simulation_info
+    global header_logo_label
+    global header_title_label
 
     root = tk.Tk()
+
+    # Aplicar icono guardado
+    apply_application_icon()
 
     root.title(
         "Monitor de Enlaces de Red"
@@ -1898,7 +2718,10 @@ def build_main_interface():
     style.configure(
         "Treeview",
         rowheight=30,
-        font=("Arial", 10)
+        font=(
+            "Arial",
+            10
+        )
     )
 
     style.configure(
@@ -1924,15 +2747,38 @@ def build_main_interface():
         pady=15
     )
 
-    ttk.Label(
-        header,
+    # --------------------------------------------------------
+    # ÁREA IZQUIERDA DEL ENCABEZADO
+    # --------------------------------------------------------
+
+    title_frame = ttk.Frame(
+        header
+    )
+
+    title_frame.pack(
+        side="left"
+    )
+
+    header_logo_label = ttk.Label(
+        title_frame
+    )
+
+    header_logo_label.pack(
+        side="left",
+        padx=(0, 15)
+    )
+
+    header_title_label = ttk.Label(
+        title_frame,
         text="MONITOR DE ENLACES DE RED",
         font=(
             "Arial",
             22,
             "bold"
         )
-    ).pack(
+    )
+
+    header_title_label.pack(
         side="left"
     )
 
@@ -1950,6 +2796,9 @@ def build_main_interface():
     monitor_label.pack(
         side="right"
     )
+
+    # Mostrar logo guardado
+    rebuild_header_logo()
 
     # --------------------------------------------------------
     # BOTONES PRINCIPALES
@@ -2001,6 +2850,15 @@ def build_main_interface():
         button_frame,
         text="Configuración agencias",
         command=open_agency_config
+    ).pack(
+        side="left",
+        padx=4
+    )
+
+    ttk.Button(
+        button_frame,
+        text="Configuración apariencia",
+        command=open_appearance_config
     ).pack(
         side="left",
         padx=4
@@ -2166,7 +3024,10 @@ def build_main_interface():
         anchor="center"
     )
 
-    # Scrollbar
+    # --------------------------------------------------------
+    # SCROLLBAR
+    # --------------------------------------------------------
+
     scrollbar = ttk.Scrollbar(
         table_frame,
         orient="vertical",
@@ -2188,7 +3049,10 @@ def build_main_interface():
         fill="y"
     )
 
-    # Colores
+    # --------------------------------------------------------
+    # COLORES
+    # --------------------------------------------------------
+
     tree.tag_configure(
         "up",
         foreground="#008000"
@@ -2316,6 +3180,30 @@ def build_main_interface():
         f"{MAX_FAILURES}"
     )
 
+    if logo_path:
+
+        log_event(
+            "Logo personalizado cargado."
+        )
+
+    else:
+
+        log_event(
+            "Logo personalizado: ninguno."
+        )
+
+    if icon_path:
+
+        log_event(
+            "Icono personalizado cargado."
+        )
+
+    else:
+
+        log_event(
+            "Icono personalizado: ninguno."
+        )
+
     log_event(
         "======================================"
     )
@@ -2325,7 +3213,10 @@ def build_main_interface():
         on_close
     )
 
-    # Actualización periódica de tabla
+    # --------------------------------------------------------
+    # ACTUALIZACIÓN PERIÓDICA DE TABLA
+    # --------------------------------------------------------
+
     root.after(
         500,
         refresh_tree
